@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SlowWake | Voyage fuel planner</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1a21;--surface:#172b33;--line:#375563;--text:#f2f7f5;--muted:#b8cbd0;--mint:#80e5bf;--sand:#ffc88d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,sans-serif}
+header,main,footer{max-width:1130px;margin:auto;padding:22px clamp(16px,4vw,46px)}header,footer{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line)}footer{border-bottom:0;border-top:1px solid var(--line)}
+a{color:var(--mint)}h1{font-size:clamp(42px,7vw,72px);letter-spacing:-.055em;line-height:1.03;margin:10px 0 22px}h2{margin-top:0;font-size:1.5rem;letter-spacing:-.02em}
+.hero{padding:44px 0 25px;max-width:790px}.hero p,.muted,footer{color:var(--muted)}.hero p{font-size:1.14rem}.tag{color:var(--mint);font-size:.85rem;letter-spacing:.11em}
+.panel{margin-bottom:24px;background:var(--surface);border:1px solid var(--line);padding:clamp(14px,3vw,26px)}.controls{display:flex;flex-wrap:wrap;gap:22px}.controls select{display:block;margin-top:6px}
+select,button{font:inherit;color:var(--text);padding:.5rem .75rem;background:#0e232b;border:1px solid #72909a;border-radius:4px}button{cursor:pointer;margin-top:12px}button:disabled{opacity:.6;cursor:default}a:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--mint);outline-offset:3px}
+.results{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:14px;margin:20px 0}.metric{border-top:1px solid var(--line);padding:12px 0}.metric span{color:var(--muted);display:block}.metric strong{font-size:1.6rem}.hero+.panel{margin-top:10px}
+.scroll{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left;white-space:nowrap}th,td{padding:10px;border-bottom:1px solid var(--line)}thead th{font-weight:500;color:var(--muted)}
+.chart{margin:14px 0 22px}.chart-row{display:grid;grid-template-columns:58px 1fr;gap:10px;align-items:center;margin:7px 0}.track{height:26px;background:#10232c;position:relative}.track i{display:block;height:10px}.track .adaptive{background:var(--mint)}.track .constant{margin-top:4px;background:var(--sand)}.legend{font-size:.9rem;display:flex;flex-wrap:wrap;gap:15px}.legend span::before{content:'';display:inline-block;width:.7em;height:.7em;background:var(--mint);margin-right:5px}.legend span:last-child::before{background:var(--sand)}.method{max-width:850px;margin:35px 0}#summary{color:var(--mint)}
+</style></head>
+<body><header><strong>SlowWake</strong><a href="https://github.com/Ehsan-Ch/slowwake-voyage-lab">GitHub repository</a></header>
+<main>
+<section class="hero"><div class="tag">SYNTHETIC VOYAGE · 240 NAUTICAL MILES</div><h1>How much fuel does an earlier arrival cost?</h1><p>Set an arrival deadline and compare the best constant speed with a plan that changes speed on each route leg.</p></section>
+<section class="panel">
+<h2>Set the voyage conditions</h2>
+<div class="controls"><label>Route conditions<select id="profile"><option value="calm">Calm</option><option value="mixed" selected>Mixed currents and loads</option><option value="headwind">Adverse currents and loads</option></select></label>
+<label>Arrival deadline<select id="deadline"></select></label></div>
+<p id="summary" aria-live="polite"></p>
+<div class="results">
+<div class="metric"><span>Variable-speed fuel</span><strong id="variable"></strong></div>
+<div class="metric"><span>Constant-speed fuel</span><strong id="constant"></strong></div>
+<div class="metric"><span>Fuel saved</span><strong id="fuel"></strong></div>
+<div class="metric"><span>Direct CO₂ avoided</span><strong id="carbon"></strong></div>
+</div><p id="timing" class="muted"></p>
+</section>
+<section class="panel">
+<h2>Speed by route leg</h2><div class="legend"><span>Variable speed</span><span>Constant speed</span></div>
+<div id="chart" class="chart" aria-hidden="true"></div>
+<div class="scroll" tabindex="0" aria-label="Speed plan by leg"><table><thead><tr><th>Leg</th><th>Current (kn)</th><th>Load multiplier</th><th>Variable speed (kn)</th><th>Constant speed (kn)</th><th>Variable time (min)</th><th>Variable fuel (t)</th></tr></thead><tbody id="legs"></tbody></table></div>
+<button type="button" id="download">Download comparison CSV</button>
+</section>
+<section class="method"><h2>What the model assumes</h2><p>The model adds current to through-water speed to calculate time. Fuel burn combines a fixed hourly auxiliary load with propulsion burn proportional to speed cubed. Six 40-nautical-mile legs have fixed currents and resistance multipliers. Planned leg times round up to the next minute.</p><p>Both policies use whole-knot speeds from 9 to 18. The optimizer searches feasible speed sequences on that grid. The constant-speed policy uses the best single speed for every leg. Some savings come from using time the constant-speed plan leaves unused. The model treats route conditions as known and uses an illustrative fuel curve.</p><p>Direct CO₂ uses the diesel/gas oil conversion factor of 3.206 tonnes CO₂ per tonne of fuel. <a href="https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.364%2879%29.pdf">IMO resolution MEPC.364(79)</a></p></section>
+</main><footer><span>SlowWake</span><span>Voyage planning research</span></footer>
+<script type="application/json" id="data"><!-- REPORT --></script>
+<script>
+const report = JSON.parse(document.getElementById('data').textContent);
+const get = id => document.getElementById(id);
+const mass = value => value.toFixed(2) + ' t';
+const duration = value => Math.floor(value/60) + ' h ' + value%60 + ' min';
+const deadline = get('deadline');
+deadline.innerHTML = Object.keys(report.mixed.plans).map(h => '<option value="'+h+'">'+h+' hours</option>').join('');
+deadline.value = '20';
+function selected() {
+  return report[get('profile').value].plans[deadline.value];
+}
+function update() {
+  const {adaptive, constant} = selected();
+  const profile = report[get('profile').value];
+  get('download').disabled = !adaptive;
+  if (!adaptive) {
+    get('summary').textContent = 'No plan meets this deadline on the modeled speed grid.';
+    get('timing').textContent = 'Fastest modeled crossing: '+duration(profile.fastest)+'.';
+    for (const id of ['variable','constant','fuel','carbon']) get(id).textContent = '—';
+    get('chart').innerHTML = '';
+    get('legs').innerHTML = '';
+    return;
+  }
+  const saving = Math.max(0,constant.fuel-adaptive.fuel);
+  get('summary').textContent = (100*saving/constant.fuel).toFixed(1)+'% lower modeled fuel use at the selected deadline.';
+  get('timing').textContent = 'Variable speed arrives in '+duration(adaptive.minutes)+'. Constant speed arrives in '+duration(constant.minutes)+'.';
+  get('variable').textContent = mass(adaptive.fuel);
+  get('constant').textContent = mass(constant.fuel);
+  get('fuel').textContent = mass(saving);
+  get('carbon').textContent = mass(Math.max(0,constant.co2-adaptive.co2));
+  get('chart').innerHTML = adaptive.legs.map((leg,i) =>
+    '<div class="chart-row"><span>Leg '+(i+1)+'</span><div class="track"><i class="adaptive" style="width:'+100*leg.speed/18+'%"></i><i class="constant" style="width:'+100*constant.legs[i].speed/18+'%"></i></div></div>').join('');
+  get('legs').innerHTML = adaptive.legs.map((leg,i) =>
+    '<tr><th scope="row">'+(i+1)+'</th>'+[leg.current,leg.load,leg.speed,constant.legs[i].speed,leg.minutes,leg.fuel.toFixed(2)].map(value=>'<td>'+value+'</td>').join('')+'</tr>').join('');
+}
+get('profile').onchange = update;
+deadline.onchange = update;
+get('download').onclick = () => {
+  const plans = selected();
+  if (!plans.adaptive) return;
+  const fields = ['distance','current','load','speed','ground','minutes','fuel'];
+  const lines = ['profile,deadline_hours,policy,leg,distance_nm,current_kn,load_multiplier,speed_through_water_kn,speed_over_ground_kn,planned_minutes,fuel_t'];
+  for (const [policy,plan] of Object.entries(plans)) {
+    plan.legs.forEach((leg,i)=>lines.push([get('profile').value,deadline.value,policy,i+1,...fields.map(key=>leg[key])].join(',')));
+  }
+  const url = URL.createObjectURL(new Blob([lines.join('\n')+'\n'],{type:'text/csv'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'slowwake-voyage-plan.csv';
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+update();
+</script>
+</body></html>
